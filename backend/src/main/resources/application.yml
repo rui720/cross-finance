@@ -1,0 +1,89 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: cross-finance-platform
+  profiles:
+    active: dev
+  # 数据源（生产环境请通过环境变量注入，禁止明文密码入库）
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/cross_finance?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:}
+  # Redis 缓存
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 4
+          min-idle: 0
+  # 文件上传
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
+  # Jackson
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+
+# MyBatis-Plus
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.finance.platform.**.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# JWT 自定义配置（密钥请通过环境变量注入，切勿硬编码）
+finance:
+  jwt:
+    # 生产环境必须通过环境变量 JWT_SECRET 注入 ≥256 bit 随机串
+    secret: ${JWT_SECRET:dev-only-secret-please-change-in-production-0123456789}
+    # token 有效期（秒），默认 2 小时
+    expire: 7200
+    # token 请求头名称
+    header: Authorization
+    # token 前缀
+    prefix: "Bearer "
+  # LangChain4j 大模型对接
+  langchain:
+    # 模型提供商：openai / deepseek / qwen / ollama
+    provider: deepseek
+    # DeepSeek API Key 必须通过环境变量 LANGCHAIN_API_KEY 注入
+    api-key: ${LANGCHAIN_API_KEY:}
+    base-url: https://api.deepseek.com/v1
+    model-name: deepseek-chat
+    temperature: 0.3
+    timeout: 60000
+    # 向量库（如使用 Chroma）
+    embedding-model: bge-small-zh
+  # 线程池
+  thread-pool:
+    etl-core: 2
+    etl-max: 8
+    etl-queue: 100
+    ai-core: 4
+    ai-max: 16
+    ai-queue: 200
+
+logging:
+  level:
+    com.finance.platform: debug
+    org.springframework.security: info

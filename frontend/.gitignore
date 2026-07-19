@@ -1,0 +1,21 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 敏感配置文件（禁止入库）
+.env
+.env.*
+!.env.example
+.npm-cache/
+.pnpm-store/
+.vite/
+.vite-cache/
