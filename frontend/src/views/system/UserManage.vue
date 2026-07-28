@@ -1,5 +1,5 @@
 <script setup>
-// 用户与权限管理页：用户的增删改查、重置密码、分配角色
+// 用户与权限管理页：用户的增删改查、重置密码、分配角色、恢复已删除用户
 import { reactive, ref, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -8,22 +8,31 @@ import {
   updateUser,
   deleteUser,
   resetPassword,
-  assignRoles
+  assignRoles,
+  pageDeletedUser,
+  recoverUser
 } from '@/api/system'
 import request from '@/utils/request'
+import { usePageState } from '@/composables/usePageState'
+
+// 页面状态保持（搜索条件、页号切换页面后自动恢复）
+const { loadField, saveField } = usePageState('UserManage')
+
+// 当前视图：active=在职用户，deleted=已删除用户（用于恢复）
+const activeView = ref('active')
 
 // 搜索条件
-const search = reactive({
+const search = reactive(loadField('search', {
   keyword: '',
   status: '',
   roleCode: ''
-})
+}))
 
 // 分页与表格数据
 const tableData = ref([])
 const total = ref(0)
 const loading = ref(false)
-const page = reactive({ page: 1, size: 10 })
+const page = reactive(loadField('page', { page: 1, size: 10 }))
 
 // 新增/编辑弹窗
 const dialogVisible = ref(false)
@@ -33,6 +42,7 @@ const formRef = ref(null)
 const form = reactive({
   id: null,
   username: '',
+  employeeNo: '',
   password: '',
   realName: '',
   phone: '',
@@ -65,12 +75,26 @@ function formatDept(deptId) {
   return deptMap.value[deptId] || `部门#${deptId}`
 }
 
-// 表单校验规则：密码仅新增必填
+// 表单校验规则
+// - 新增：工号可空（留空自动生成），密码必填且至少6位
+// - 编辑：工号必填（业务唯一标识不可清空），密码留空表示不修改、填了则校验长度
 const rules = computed(() => ({
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+  employeeNo: isEdit.value
+    ? [
+        { required: true, message: '请输入员工工号', trigger: 'blur' },
+        { pattern: /^EMP\d{8}$/, message: '工号格式：EMP+8位数字（如 EMP20260001）', trigger: 'blur' }
+      ]
+    : [
+        { required: false, message: '留空自动生成', trigger: 'blur' },
+        { pattern: /^EMP\d{8}$/, message: '工号格式：EMP+8位数字（如 EMP20260001），留空自动生成', trigger: 'blur' }
+      ],
   password: isEdit.value
-    ? []
-    : [{ required: true, message: '请输入密码', trigger: 'blur' }],
+    ? [{ min: 6, message: '密码至少6位', trigger: 'blur' }]
+    : [
+        { required: true, message: '请输入密码', trigger: 'blur' },
+        { min: 6, message: '密码至少6位', trigger: 'blur' }
+      ],
   realName: [{ required: true, message: '请输入真实姓名', trigger: 'blur' }],
   phone: [{ pattern: /^1[3-9]\d{9}$/, message: '手机号格式不正确', trigger: 'blur' }],
   email: [{ type: 'email', message: '邮箱格式不正确', trigger: 'blur' }]
@@ -91,12 +115,10 @@ const resetRules = {
 const roleDialogVisible = ref(false)
 const roleForm = reactive({ id: null, username: '', roleCodes: [] })
 
-// 角色代码 -> 中文标签映射（扩充到 6 种）
+// 角色代码 -> 中文标签映射
 const roleOptions = [
   { label: '管理员', value: 'ADMIN' },
   { label: '财务', value: 'FINANCE' },
-  { label: '审批经理', value: 'APPROVER' },
-  { label: '出纳', value: 'CASHIER' },
   { label: '运营', value: 'OPERATOR' },
   { label: '普通员工', value: 'EMPLOYEE' }
 ]
@@ -107,11 +129,21 @@ function formatTime(t) {
   return String(t).replace('T', ' ').split('.')[0]
 }
 
-// 加载用户列表
+// 加载用户列表（根据当前视图切换接口）
 async function loadData() {
   loading.value = true
   try {
-    const res = await pageUser({ ...search, ...page })
+    let res
+    if (activeView.value === 'deleted') {
+      // 已删除用户视图：仅支持 keyword 搜索
+      res = await pageDeletedUser({
+        keyword: search.keyword,
+        page: page.page,
+        size: page.size
+      })
+    } else {
+      res = await pageUser({ ...search, ...page })
+    }
     tableData.value = res.data?.records || []
     total.value = res.data?.total || 0
   } catch (e) {
@@ -141,6 +173,7 @@ function handleAdd() {
   Object.assign(form, {
     id: null,
     username: '',
+    employeeNo: '',
     password: '',
     realName: '',
     phone: '',
@@ -158,6 +191,7 @@ function handleEdit(row) {
   Object.assign(form, {
     id: row.id,
     username: row.username,
+    employeeNo: row.employeeNo,
     password: '',
     realName: row.realName,
     phone: row.phone,
@@ -191,7 +225,7 @@ function handleSubmit() {
 
 // 删除用户
 function handleDelete(row) {
-  ElMessageBox.confirm(`确定删除用户「${row.username}」吗？`, '提示', {
+  ElMessageBox.confirm(`确定删除用户「${row.username}」吗？\n\n删除后可在"已删除用户"视图中恢复，但若工号/手机号/邮箱已被新用户占用，恢复时需要先处理冲突。`, '提示', {
     confirmButtonText: '确定',
     cancelButtonText: '取消',
     type: 'warning'
@@ -206,6 +240,37 @@ function handleDelete(row) {
       }
     })
     .catch(() => {})
+}
+
+// 恢复已删除用户
+function handleRecover(row) {
+  ElMessageBox.confirm(`确定恢复用户「${row.username}」（工号 ${row.employeeNo || '-'}）吗？\n\n系统会校验工号/手机号/邮箱/用户名是否已被另一在职用户占用，若冲突会提示具体冲突字段。`, '恢复确认', {
+    confirmButtonText: '确定恢复',
+    cancelButtonText: '取消',
+    type: 'warning'
+  })
+    .then(async () => {
+      try {
+        await recoverUser(row.id)
+        ElMessage.success('恢复成功')
+        loadData()
+      } catch (e) {
+        // 错误已由请求拦截器统一处理
+      }
+    })
+    .catch(() => {})
+}
+
+// 切换视图（在职 / 已删除）
+function handleViewChange(view) {
+  activeView.value = view
+  page.page = 1
+  // 切换视图时重置部分搜索条件
+  if (view === 'deleted') {
+    search.status = ''
+    search.roleCode = ''
+  }
+  loadData()
 }
 
 // 打开重置密码弹窗
@@ -297,6 +362,10 @@ watch(
   { deep: true }
 )
 
+// 页面状态持久化：切换页面后再切回时，自动恢复上次的搜索条件和页号
+watch(search, v => saveField('search', { ...v }), { deep: true })
+watch(page, v => saveField('page', { ...v }), { deep: true })
+
 onMounted(() => {
   loadDeptList()
   loadData()
@@ -305,33 +374,43 @@ onMounted(() => {
 
 <template>
   <div class="page-card">
+    <!-- 视图切换：在职用户 / 已删除用户 -->
+    <div class="flex-between mb-16">
+      <el-radio-group v-model="activeView" @change="handleViewChange">
+        <el-radio-button value="active">在职用户</el-radio-button>
+        <el-radio-button value="deleted">已删除用户</el-radio-button>
+      </el-radio-group>
+    </div>
+
     <!-- 搜索栏 + 操作按钮 -->
     <div class="flex-between mb-16">
       <el-form :inline="true" :model="search">
         <el-form-item label="关键词">
           <el-input
             v-model="search.keyword"
-            placeholder="用户名 / 真实姓名"
+            :placeholder="activeView === 'deleted' ? '用户名 / 真实姓名 / 工号' : '用户名 / 真实姓名'"
             clearable
             @keyup.enter="handleSearch"
           />
         </el-form-item>
-        <el-form-item label="角色">
-          <el-select v-model="search.roleCode" placeholder="全部角色" clearable style="width: 140px">
-            <el-option
-              v-for="opt in roleOptions"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="search.status" placeholder="全部" clearable style="width: 120px">
-            <el-option label="启用" :value="1" />
-            <el-option label="禁用" :value="0" />
-          </el-select>
-        </el-form-item>
+        <template v-if="activeView === 'active'">
+          <el-form-item label="角色">
+            <el-select v-model="search.roleCode" placeholder="全部角色" clearable style="width: 140px">
+              <el-option
+                v-for="opt in roleOptions"
+                :key="opt.value"
+                :label="opt.label"
+                :value="opt.value"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="状态">
+            <el-select v-model="search.status" placeholder="全部" clearable style="width: 120px">
+              <el-option label="启用" :value="1" />
+              <el-option label="禁用" :value="0" />
+            </el-select>
+          </el-form-item>
+        </template>
         <el-form-item>
           <el-button type="primary" @click="handleSearch">
             <el-icon><Search /></el-icon> 查询
@@ -341,14 +420,17 @@ onMounted(() => {
           </el-button>
         </el-form-item>
       </el-form>
-      <el-button type="primary" @click="handleAdd">
+      <el-button v-if="activeView === 'active'" type="primary" @click="handleAdd">
         <el-icon><Plus /></el-icon> 新增用户
       </el-button>
     </div>
 
     <!-- 用户表格 -->
     <el-table :data="tableData" v-loading="loading" border stripe style="width: 100%">
-      <el-table-column prop="id" label="ID" width="70" />
+      <el-table-column label="序号" width="70" align="center">
+        <template #default="{ $index }">{{ (page.page - 1) * page.size + $index + 1 }}</template>
+      </el-table-column>
+      <el-table-column prop="employeeNo" label="工号" width="140" />
       <el-table-column prop="username" label="用户名" min-width="120" />
       <el-table-column prop="realName" label="真实姓名" min-width="120" />
       <el-table-column prop="phone" label="手机号" min-width="130" />
@@ -368,12 +450,17 @@ onMounted(() => {
       <el-table-column label="创建时间" width="170">
         <template #default="{ row }">{{ formatTime(row.createTime) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="300" fixed="right">
+      <el-table-column v-if="activeView === 'active'" label="操作" width="300" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="handleEdit(row)">编辑</el-button>
           <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
           <el-button link type="warning" @click="handleResetPwd(row)">重置密码</el-button>
           <el-button link type="success" @click="handleAssignRoles(row)">分配角色</el-button>
+        </template>
+      </el-table-column>
+      <el-table-column v-else label="操作" width="160" fixed="right">
+        <template #default="{ row }">
+          <el-button link type="success" @click="handleRecover(row)">恢复用户</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -395,8 +482,20 @@ onMounted(() => {
     <!-- 新增/编辑弹窗 -->
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="520px" destroy-on-close>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
+        <el-form-item label="员工工号" prop="employeeNo">
+          <el-input
+            v-model="form.employeeNo"
+            placeholder="留空自动生成（EMP+年份+顺序号）"
+          />
+          <div v-if="!isEdit" style="font-size: 12px; color: #909399; line-height: 1.4; margin-top: 4px;">
+            业务唯一标识，建议使用企业工号；留空系统自动生成。删除后不可复用。
+          </div>
+          <div v-else style="font-size: 12px; color: #909399; line-height: 1.4; margin-top: 4px;">
+            修改工号需确保新工号未被其他用户使用。
+          </div>
+        </el-form-item>
         <el-form-item label="用户名" prop="username">
-          <el-input v-model="form.username" :disabled="isEdit" placeholder="请输入用户名" />
+          <el-input v-model="form.username" placeholder="登录用户名，删除后可被他人复用" />
         </el-form-item>
         <el-form-item label="密码" prop="password">
           <el-input

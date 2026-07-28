@@ -6,7 +6,7 @@
 --   1. 新建 sys_dept 部门表
 --   2. 初始化部门数据（运营/物流/营销/财务/人事/IT）
 --   3. 为现有用户回填部门名称关联（通过 dept_id 已建立）
---   4. 新增 2 个系统用户：出纳 cashier / 普通员工 employee
+--   4. 新增 1 个系统用户：普通员工 employee
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -46,13 +46,12 @@ INSERT INTO `sys_dept` (`id`, `parent_id`, `dept_name`, `dept_code`, `sort`, `st
 (7, 1, 'IT 信息部',  'IT',       6, 1);
 
 -- ------------------------------------------------------------
--- 3. 补充用户：出纳 + 普通员工
---    密码均为 BCrypt 加密存储的初始密码，首次登录后请强制修改
---    不指定 id（让自增），避免与 03_mock_data.sql 插入的 operator/finance2 冲突
+-- 3. 补充用户：普通员工
+--    密码为 BCrypt 加密存储的初始密码，首次登录后请强制修改
+--    不指定 id（让自增），避免与已插入的用户冲突
 --    使用 ON DUPLICATE KEY UPDATE 保证脚本可重复执行
 -- ------------------------------------------------------------
 INSERT INTO `sys_user` (`username`, `password`, `real_name`, `phone`, `email`, `status`, `dept_id`, `role_ids`) VALUES
-('cashier',  '$2a$10$8eyCA6Eqk.TFL.j5iEXd/ujAMtA6GEpOEtYupOt8OpivljDyIr.fy', '出纳',     '13800000003', 'cashier@finance.com',  1, 5, '["CASHIER"]'),
 ('employee', '$2a$10$8eyCA6Eqk.TFL.j5iEXd/ujAMtA6GEpOEtYupOt8OpivljDyIr.fy', '普通员工', '13800000004', 'employee@finance.com', 1, 6, '["EMPLOYEE"]')
 ON DUPLICATE KEY UPDATE
     `password`   = VALUES(`password`),
@@ -67,9 +66,7 @@ ON DUPLICATE KEY UPDATE
 -- ------------------------------------------------------------
 -- 4. 角色代码字典说明（无需建表，代码中硬编码）：
 --    ADMIN     管理员       全部菜单
---    FINANCE   财务         数据底座 + 业财核算 + 资金风控(付款+审批) + 智能决策
---    APPROVER  审批经理     资金风控(审批-通过/驳回) + 智能决策
---    CASHIER   出纳         资金风控(审批-标记已付款) + 智能决策
---    OPERATOR  运营         数据底座(只读) + 业财核算(只读) + 资金风控(付款) + 智能决策
+--    FINANCE   财务         数据底座 + 业财核算(含模型配置) + 智能决策
+--    OPERATOR  运营         数据底座(只读) + 业财核算(只读,无模型配置) + 智能决策
 --    EMPLOYEE  普通员工     智能决策（驾驶舱 + AI 顾问）
 -- ------------------------------------------------------------

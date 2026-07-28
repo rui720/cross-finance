@@ -12,10 +12,8 @@ const userStore = useUserStore()
 // roles 标注允许查看的角色，未标注表示所有登录用户可见
 // 权限矩阵：
 //   ADMIN     全部菜单
-//   FINANCE   数据底座 + 业财核算(含模型配置) + 资金风控(付款+审批) + 智能决策
-//   APPROVER  资金风控(审批-通过/驳回) + 智能决策
-//   CASHIER   资金风控(审批-标记已付款) + 智能决策
-//   OPERATOR  数据底座(只读) + 业财核算(只读,无模型配置) + 资金风控(付款) + 智能决策
+//   FINANCE   数据底座 + 业财核算 + 智能决策
+//   OPERATOR  数据底座(只读) + 业财核算(只读) + 智能决策
 //   EMPLOYEE  智能决策（驾驶舱 + AI 顾问）
 const allMenus = [
   {
@@ -27,19 +25,19 @@ const allMenus = [
   {
     title: '数据底座', icon: 'Coin', roles: ['ADMIN', 'FINANCE', 'OPERATOR'], children: [
       { title: '账单导入清洗', path: '/data/bill-import', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] },
-      { title: '银行流水对账', path: '/data/bank-reconciliation', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
+      { title: '额外费用导入', path: '/data/cost-import', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] },
+      { title: '历史汇率导入', path: '/data/exchange-rate-import', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] },
+      { title: '银行流水导入', path: '/data/bank-reconciliation', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] },
+      { title: '数据管理', path: '/data/data-management', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
     ]
   },
   {
     title: '业财核算', icon: 'Histogram', roles: ['ADMIN', 'FINANCE', 'OPERATOR'], children: [
-      { title: '利润报表', path: '/accounting/profit-report', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] },
-      { title: '分摊模型配置', path: '/accounting/model-config', roles: ['ADMIN', 'FINANCE'] }
-    ]
-  },
-  {
-    title: '资金风控', icon: 'Wallet', roles: ['ADMIN', 'FINANCE', 'APPROVER', 'CASHIER', 'OPERATOR'], children: [
-      { title: '付款申请', path: '/fund/payment-apply', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] },
-      { title: '审批工作台', path: '/fund/approval-center', roles: ['ADMIN', 'APPROVER', 'CASHIER'] }
+      { title: '利润明细', path: '/accounting/profit-detail', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] },
+      { title: '趋势分析', path: '/accounting/profit-trend', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] },
+      { title: '成本结构', path: '/accounting/cost-structure', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] },
+      { title: '利润诊断', path: '/accounting/profit-diagnosis', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] },
+      { title: '多维聚合', path: '/accounting/profit-aggregate', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
     ]
   },
   {
@@ -67,12 +65,10 @@ const menus = computed(() => {
     .filter(m => m.children.length > 0)
 })
 
-// 角色中文标签（扩充到 6 种）
+// 角色中文标签
 const roleLabels = {
   ADMIN: '管理员',
   FINANCE: '财务',
-  APPROVER: '审批经理',
-  CASHIER: '出纳',
   OPERATOR: '运营',
   EMPLOYEE: '普通员工'
 }

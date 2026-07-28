@@ -1,21 +1,19 @@
 package com.finance.platform.ai.agent;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.finance.platform.accounting.entity.CostAllocationRule;
 import com.finance.platform.accounting.entity.ProfitReport;
-import com.finance.platform.accounting.mapper.CostAllocationRuleMapper;
 import com.finance.platform.accounting.service.ProfitEngineService;
 import com.finance.platform.ai.service.AiAnalysisService;
 import com.finance.platform.common.utils.CurrencyConvertUtils;
 import com.finance.platform.data.entity.ExchangeRateSnapshot;
+import com.finance.platform.data.entity.ImportBatch;
+import com.finance.platform.data.entity.ImportTemplate;
 import com.finance.platform.data.entity.RawOrder;
 import com.finance.platform.data.mapper.ExchangeRateSnapshotMapper;
 import com.finance.platform.data.mapper.RawOrderMapper;
 import com.finance.platform.data.service.ExchangeRateService;
-import com.finance.platform.fund.entity.BudgetPlan;
-import com.finance.platform.fund.entity.PaymentApply;
-import com.finance.platform.fund.service.BudgetControlService;
-import com.finance.platform.fund.service.PaymentFlowService;
+import com.finance.platform.data.service.ImportBatchService;
+import com.finance.platform.data.service.ImportTemplateService;
 import com.finance.platform.system.entity.SysAuditLog;
 import com.finance.platform.system.service.SysAuditLogService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -47,11 +45,11 @@ import static org.mockito.Mockito.when;
 /**
  * AI Agent 工具集单元测试
  * <p>
- * 验证 12 个 @Tool 方法的核心逻辑：
+ * 验证 11 个 @Tool 方法的核心逻辑：
  * 1. 汇率查询：getLatestExchangeRate（含金额换算）/ getExchangeRateHistory
- * 2. 业务查询：queryOrders / queryProfitReport / queryBudgetWarnings / queryPaymentApplies
- * 3. 详情查询：queryAllocationRules / queryPaymentDetail / queryOrderDetail
- * 4. 日志与对账：queryAuditLogs / queryReconcileStatus
+ * 2. 业务查询：queryOrders / queryProfitReport / queryAllocationRules / queryOrderDetail
+ * 3. 日志与对账：queryAuditLogs / queryReconcileStatus
+ * 4. 导入管理：queryImportBatches / queryImportTemplates
  * 5. AI 分析：analyzeProfit
  * <p>
  * 同时验证 @Tool 注解被正确识别（工具规格提取）。
@@ -64,12 +62,11 @@ class AiToolsTest {
     @Mock private ExchangeRateSnapshotMapper exchangeRateSnapshotMapper;
     @Mock private RawOrderMapper rawOrderMapper;
     @Mock private ProfitEngineService profitEngineService;
-    @Mock private BudgetControlService budgetControlService;
-    @Mock private PaymentFlowService paymentFlowService;
     @Mock private CurrencyConvertUtils currencyConvertUtils;
     @Mock private AiAnalysisService aiAnalysisService;
     @Mock private SysAuditLogService sysAuditLogService;
-    @Mock private CostAllocationRuleMapper costAllocationRuleMapper;
+    @Mock private ImportBatchService importBatchService;
+    @Mock private ImportTemplateService importTemplateService;
 
     @InjectMocks
     private AiTools aiTools;
@@ -95,15 +92,16 @@ class AiToolsTest {
     @DisplayName("所有 @Tool 方法被正确识别为工具规格")
     void allToolsAnnotated() {
         List<ToolSpecification> specs = ToolSpecifications.toolSpecificationsFrom(aiTools);
-        // 应有 12 个工具（合并后：原13 - convertCurrency = 12）
-        assertThat(specs).hasSize(12);
+        // 应有 11 个工具（原12 - 删除3个 fund 工具 + 新增 queryImportBatches + queryImportTemplates）
+        assertThat(specs).hasSize(11);
         // 验证工具名（方法名）
         List<String> toolNames = specs.stream().map(ToolSpecification::name).toList();
         assertThat(toolNames).containsExactlyInAnyOrder(
                 "getLatestExchangeRate", "getExchangeRateHistory",
-                "queryOrders", "queryProfitReport", "queryBudgetWarnings", "queryPaymentApplies",
-                "queryAllocationRules", "queryPaymentDetail", "queryOrderDetail",
-                "queryAuditLogs", "queryReconcileStatus", "analyzeProfit"
+                "queryOrders", "queryProfitReport",
+                "queryAllocationRules", "queryOrderDetail",
+                "queryAuditLogs", "queryReconcileStatus", "analyzeProfit",
+                "queryImportBatches", "queryImportTemplates"
         );
     }
 
@@ -195,7 +193,7 @@ class AiToolsTest {
         r1.setCostAmount(new BigDecimal("1000")); r1.setProfitAmount(new BigDecimal("9875"));
         Page<ProfitReport> page = new Page<>(1, 200);
         page.setRecords(List.of(r1));
-        when(profitEngineService.getReport("202607", 1, 200)).thenReturn(page);
+        when(profitEngineService.getReport("202607", null, null, 1, 200)).thenReturn(page);
         String result = aiTools.queryProfitReport("202607");
         assertThat(result).contains("202607").contains("1 笔").contains("10875").contains("9875");
     }
@@ -205,95 +203,20 @@ class AiToolsTest {
     void queryProfitReportEmpty() {
         Page<ProfitReport> page = new Page<>(1, 200);
         page.setRecords(Collections.emptyList());
-        when(profitEngineService.getReport(anyString(), any(Integer.class), any(Integer.class)))
+        when(profitEngineService.getReport(anyString(), any(), any(), any(Integer.class), any(Integer.class)))
                 .thenReturn(page);
         String result = aiTools.queryProfitReport("202607");
         assertThat(result).contains("暂无利润报表");
     }
 
-    // ==================== 4. 预算预警 ====================
-
-    @Test
-    @DisplayName("查询预算预警：返回预警列表")
-    void queryBudgetWarnings() {
-        BudgetPlan p1 = new BudgetPlan();
-        p1.setPlanName("物流预算"); p1.setPeriod("202607");
-        p1.setTotalAmount(new BigDecimal("500000")); p1.setUsedAmount(new BigDecimal("410000"));
-        p1.setCurrency("CNY"); p1.setWarningThreshold(new BigDecimal("80"));
-        when(budgetControlService.getWarningPlans()).thenReturn(List.of(p1));
-        String result = aiTools.queryBudgetWarnings();
-        assertThat(result).contains("1 项预算达到预警").contains("物流预算").contains("82.00");
-    }
-
-    @Test
-    @DisplayName("查询预算预警：无预警时返回提示")
-    void queryBudgetWarningsEmpty() {
-        when(budgetControlService.getWarningPlans()).thenReturn(Collections.emptyList());
-        String result = aiTools.queryBudgetWarnings();
-        assertThat(result).contains("没有预算达到预警");
-    }
-
-    // ==================== 5. 付款申请查询 ====================
-
-    @Test
-    @DisplayName("查询付款申请：返回列表文本")
-    void queryPaymentApplies() {
-        PaymentApply p1 = new PaymentApply();
-        p1.setApplyNo("PAY-001"); p1.setAmount(new BigDecimal("50000"));
-        p1.setCurrency("CNY"); p1.setStatus(1); p1.setPayee("物流公司"); p1.setApplyReason("运费");
-        when(paymentFlowService.list(any(LambdaQueryWrapper.class))).thenReturn(List.of(p1));
-        String result = aiTools.queryPaymentApplies(1);
-        assertThat(result).contains("1 条").contains("PAY-001").contains("待审批").contains("50000");
-    }
-
-    @Test
-    @DisplayName("查询付款申请：无数据时返回提示")
-    void queryPaymentAppliesEmpty() {
-        when(paymentFlowService.list(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
-        String result = aiTools.queryPaymentApplies(0);
-        assertThat(result).contains("未查询到");
-    }
-
     // ==================== 6. 分摊规则 ====================
 
     @Test
-    @DisplayName("查询分摊规则：返回规则列表")
+    @DisplayName("查询分摊规则：返回固定分摊策略说明")
     void queryAllocationRules() {
-        CostAllocationRule r1 = new CostAllocationRule();
-        r1.setRuleName("按金额分摊"); r1.setRuleType("AMOUNT"); r1.setEnabled(1); r1.setDescription("默认规则");
-        when(costAllocationRuleMapper.selectList(any())).thenReturn(List.of(r1));
+        // 配置层已移除，工具方法返回固定的分摊策略说明
         String result = aiTools.queryAllocationRules();
-        assertThat(result).contains("1 条").contains("按金额分摊").contains("已启用");
-    }
-
-    @Test
-    @DisplayName("查询分摊规则：无规则时返回提示")
-    void queryAllocationRulesEmpty() {
-        when(costAllocationRuleMapper.selectList(any())).thenReturn(Collections.emptyList());
-        String result = aiTools.queryAllocationRules();
-        assertThat(result).contains("未配置");
-    }
-
-    // ==================== 8. 付款详情 ====================
-
-    @Test
-    @DisplayName("查询付款详情：返回详情文本")
-    void queryPaymentDetail() {
-        PaymentApply p = new PaymentApply();
-        p.setApplyNo("PAY-001"); p.setPayee("物流公司"); p.setAmount(new BigDecimal("50000"));
-        p.setCurrency("CNY"); p.setApplyReason("运费"); p.setStatus(1);
-        p.setApplyTime(LocalDateTime.now()); p.setBudgetPlanId(1L);
-        when(paymentFlowService.getOne(any(LambdaQueryWrapper.class))).thenReturn(p);
-        String result = aiTools.queryPaymentDetail("PAY-001");
-        assertThat(result).contains("PAY-001").contains("物流公司").contains("50000").contains("待审批");
-    }
-
-    @Test
-    @DisplayName("查询付款详情：不存在时返回提示")
-    void queryPaymentDetailNotFound() {
-        when(paymentFlowService.getOne(any(LambdaQueryWrapper.class))).thenReturn(null);
-        String result = aiTools.queryPaymentDetail("NOT-EXIST");
-        assertThat(result).contains("未找到");
+        assertThat(result).contains("金额占比").contains("分摊");
     }
 
     // ==================== 9. 订单详情 ====================
@@ -326,11 +249,11 @@ class AiToolsTest {
     void queryAuditLogs() {
         SysAuditLog log = new SysAuditLog();
         log.setCreateTime(LocalDateTime.now()); log.setUsername("admin");
-        log.setOperation("新增用户"); log.setMethod("SysUserController.add");
-        log.setCostTime(50L); log.setStatus(1);
+        log.setOperation("新增用户");
+        log.setStatus(1);
         when(sysAuditLogService.list(any(LambdaQueryWrapper.class))).thenReturn(List.of(log));
         String result = aiTools.queryAuditLogs(7);
-        assertThat(result).contains("admin").contains("新增用户").contains("50ms").contains("成功");
+        assertThat(result).contains("admin").contains("新增用户").contains("成功");
     }
 
     @Test
@@ -371,5 +294,76 @@ class AiToolsTest {
         when(aiAnalysisService.analyzeProfit(anyString())).thenReturn("");
         String result = aiTools.analyzeProfit("202607");
         assertThat(result).contains("暂无利润数据");
+    }
+
+    // ==================== 13. 导入批次状态查询（方案 B+D 新增） ====================
+
+    @Test
+    @DisplayName("查询导入批次：返回批次列表汇总")
+    void queryImportBatches() {
+        ImportBatch b1 = new ImportBatch();
+        b1.setBatchNo("IMP-20260719-001"); b1.setFileName("amazon_july.xlsx");
+        b1.setSourceType("PLATFORM"); b1.setStatus("CLEANED");
+        b1.setTotalCount(100); b1.setSuccessCount(95); b1.setFailedCount(5);
+        ImportBatch b2 = new ImportBatch();
+        b2.setBatchNo("IMP-20260719-002"); b2.setFileName("bank_flow.csv");
+        b2.setSourceType("BANK"); b2.setStatus("IMPORTED");
+        b2.setTotalCount(50); b2.setSuccessCount(0); b2.setFailedCount(0);
+        when(importBatchService.listAll()).thenReturn(List.of(b1, b2));
+        String result = aiTools.queryImportBatches(10);
+        assertThat(result)
+                .contains("2 条导入批次")
+                .contains("IMP-20260719-001").contains("amazon_july.xlsx").contains("CLEANED")
+                .contains("IMP-20260719-002").contains("bank_flow.csv").contains("IMPORTED");
+    }
+
+    @Test
+    @DisplayName("查询导入批次：无批次时返回提示")
+    void queryImportBatchesEmpty() {
+        when(importBatchService.listAll()).thenReturn(Collections.emptyList());
+        String result = aiTools.queryImportBatches(10);
+        assertThat(result).contains("暂无导入批次");
+    }
+
+    // ==================== 14. 导入模板配置查询（方案 B+D 新增） ====================
+
+    @Test
+    @DisplayName("查询导入模板：指定来源返回模板列表")
+    void queryImportTemplates() {
+        ImportTemplate t1 = new ImportTemplate();
+        t1.setId(1L); t1.setTemplateName("Amazon 平台账单模板");
+        t1.setPlatform("Amazon"); t1.setSourceType("PLATFORM");
+        t1.setFileType("EXCEL"); t1.setAiGenerated(0);
+        t1.setColumnMapping("{\"orderNo\":\"订单号\",\"amount\":\"金额\"}");
+        t1.setCleanRules("trimRule,defaultCurrencyRule,filterInvalidRule");
+        when(importTemplateService.listBySource("PLATFORM")).thenReturn(List.of(t1));
+        String result = aiTools.queryImportTemplates("PLATFORM");
+        assertThat(result)
+                .contains("1 个导入模板")
+                .contains("Amazon 平台账单模板").contains("Amazon")
+                .contains("EXCEL").contains("订单号");
+    }
+
+    @Test
+    @DisplayName("查询导入模板：来源为空时合并 PLATFORM 与 BANK")
+    void queryImportTemplatesAll() {
+        ImportTemplate t1 = new ImportTemplate();
+        t1.setId(1L); t1.setTemplateName("平台模板"); t1.setSourceType("PLATFORM");
+        t1.setFileType("EXCEL"); t1.setColumnMapping("{}"); t1.setAiGenerated(1);
+        ImportTemplate t2 = new ImportTemplate();
+        t2.setId(2L); t2.setTemplateName("银行模板"); t2.setSourceType("BANK");
+        t2.setFileType("CSV"); t2.setColumnMapping("{}"); t2.setAiGenerated(0);
+        when(importTemplateService.listBySource("PLATFORM")).thenReturn(List.of(t1));
+        when(importTemplateService.listBySource("BANK")).thenReturn(List.of(t2));
+        String result = aiTools.queryImportTemplates(null);
+        assertThat(result).contains("2 个导入模板").contains("平台模板").contains("银行模板");
+    }
+
+    @Test
+    @DisplayName("查询导入模板：无模板时返回提示")
+    void queryImportTemplatesEmpty() {
+        when(importTemplateService.listBySource(anyString())).thenReturn(Collections.emptyList());
+        String result = aiTools.queryImportTemplates("PLATFORM");
+        assertThat(result).contains("暂无导入模板");
     }
 }

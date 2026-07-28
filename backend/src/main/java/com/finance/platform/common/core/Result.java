@@ -54,4 +54,11 @@ public class Result<T> implements Serializable {
     public static <T> Result<T> error(int code, String msg) {
         return new Result<>(code, msg, null);
     }
+
+    /**
+     * 返回失败响应并携带业务数据（用于需要把详情回传前端的失败场景，如完整性检查未通过）
+     */
+    public static <T> Result<T> error(String msg, T data) {
+        return new Result<>(500, msg, data);
+    }
 }

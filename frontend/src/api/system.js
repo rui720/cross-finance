@@ -66,6 +66,23 @@ export function assignRoles(id, roleCodes) {
   })
 }
 
+// 分页查询已逻辑删除的用户（用于恢复入口）
+export function pageDeletedUser(params) {
+  return request({
+    url: '/system/user/deleted-page',
+    method: 'get',
+    params
+  })
+}
+
+// 恢复已逻辑删除的用户
+export function recoverUser(id) {
+  return request({
+    url: `/system/user/${id}/recover`,
+    method: 'post'
+  })
+}
+
 /* ============ 审计日志 ============ */
 export function pageAuditLog(params) {
   return request({
@@ -87,5 +104,13 @@ export function deleteAuditLog(id) {
   return request({
     url: `/system/audit/${id}`,
     method: 'delete'
+  })
+}
+
+// 撤销审计日志对应的操作
+export function undoAuditLog(id) {
+  return request({
+    url: `/system/audit/undo/${id}`,
+    method: 'post'
   })
 }

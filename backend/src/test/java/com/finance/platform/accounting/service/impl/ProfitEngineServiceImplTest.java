@@ -2,11 +2,11 @@ package com.finance.platform.accounting.service.impl;
 
 import com.finance.platform.accounting.entity.ProfitReport;
 import com.finance.platform.accounting.mapper.ProfitReportMapper;
-import com.finance.platform.accounting.service.CostAllocationService;
 import com.finance.platform.common.exception.BusinessException;
 import com.finance.platform.common.utils.CurrencyConvertUtils;
 import com.finance.platform.data.entity.RawOrder;
 import com.finance.platform.data.mapper.RawOrderMapper;
+import com.finance.platform.data.service.ExtraCostService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,16 +17,15 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * 利润核算引擎单元测试
@@ -40,6 +39,9 @@ import static org.mockito.Mockito.*;
  * <p>
  * 注意：ProfitEngineServiceImpl 继承 ServiceImpl，saveBatch 依赖 SqlHelper，
  * 单元测试中通过匿名子类重写 saveBatch 来绕过真实数据库调用。
+ * <p>
+ * 配置层移除后，公共成本分摊由私有方法 allocateByAmount 内联完成，
+ * extraCostService 未 mock 时公共成本池为 0，sharedCost 全部为 0。
  */
 @DisplayName("利润核算引擎测试")
 @ExtendWith(MockitoExtension.class)
@@ -49,20 +51,20 @@ class ProfitEngineServiceImplTest {
     private ProfitReportMapper profitReportMapper;
 
     @Mock
-    private CostAllocationService costAllocationService;
-
-    @Mock
     private RawOrderMapper rawOrderMapper;
 
     @Mock
     private CurrencyConvertUtils currencyConvertUtils;
 
+    @Mock
+    private ExtraCostService extraCostService;
+
     /**
      * 创建测试用 Service 实例，重写 saveBatch 避免依赖 SqlSessionFactory
      */
     private ProfitEngineServiceImpl createService(List<ProfitReport> capturedReports) {
-        return new ProfitEngineServiceImpl(profitReportMapper, costAllocationService,
-                rawOrderMapper, currencyConvertUtils) {
+        return new ProfitEngineServiceImpl(profitReportMapper,
+                rawOrderMapper, currencyConvertUtils, extraCostService) {
             @Override
             public boolean saveBatch(java.util.Collection<ProfitReport> entityList) {
                 if (capturedReports != null) {
@@ -111,23 +113,16 @@ class ProfitEngineServiceImplTest {
 
         // 无数据时不应删除旧报表，也不应插入
         verify(profitReportMapper, never()).delete(any());
-        verify(costAllocationService, never()).allocate(anyString(), any(), anyString());
     }
 
     // ==================== 核心核算逻辑 ====================
     @Test
-    @DisplayName("核算正确性：CNY 订单利润 = 金额 - 分摊成本")
+    @DisplayName("核算正确性：CNY 订单利润 = 金额 - 平台费（无公共成本时）")
     void calculateCnyOrderProfit() {
         List<RawOrder> orders = Collections.singletonList(
                 buildOrder("ORD001", "Amazon", "CNY", new BigDecimal("1000"), new BigDecimal("100"))
         );
         when(rawOrderMapper.selectList(any())).thenReturn(orders);
-
-        // 成本分摊：总平台费 100，分摊到 ORD001 = 100
-        Map<String, BigDecimal> costMap = new HashMap<>();
-        costMap.put("ORD001", new BigDecimal("100.00"));
-        when(costAllocationService.allocate(eq("202607"), eq(new BigDecimal("100")), eq("AMOUNT")))
-                .thenReturn(costMap);
 
         // CNY 直接返回原值
         when(currencyConvertUtils.toCny(new BigDecimal("1000"), "CNY"))
@@ -145,6 +140,7 @@ class ProfitEngineServiceImplTest {
         assertThat(report.getCurrency()).isEqualTo("CNY");
         assertThat(report.getOriginalAmount()).isEqualByComparingTo("1000");
         assertThat(report.getCnyAmount()).isEqualByComparingTo("1000");
+        // 无公共额外费用，sharedCost=0，成本仅平台费 100
         assertThat(report.getCostAmount()).isEqualByComparingTo("100.00");
         assertThat(report.getProfitAmount()).isEqualByComparingTo("900.00");
         // 利润率 = 900 / 1000 = 0.900000
@@ -160,9 +156,6 @@ class ProfitEngineServiceImplTest {
         );
         when(rawOrderMapper.selectList(any())).thenReturn(orders);
 
-        Map<String, BigDecimal> costMap = new HashMap<>();
-        costMap.put("ORD002", new BigDecimal("7.25"));
-        when(costAllocationService.allocate(anyString(), any(), anyString())).thenReturn(costMap);
         when(currencyConvertUtils.toCny(new BigDecimal("100"), "USD"))
                 .thenReturn(new BigDecimal("725.000000"));
 
@@ -173,6 +166,7 @@ class ProfitEngineServiceImplTest {
 
         ProfitReport report = captured.get(0);
         assertThat(report.getCnyAmount()).isEqualByComparingTo("725.000000");
+        // 无公共额外费用，成本仅平台费 7.25
         assertThat(report.getCostAmount()).isEqualByComparingTo("7.25");
         assertThat(report.getProfitAmount()).isEqualByComparingTo("717.750000");
         // 利润率 = 717.75 / 725 = 0.990000
@@ -180,20 +174,13 @@ class ProfitEngineServiceImplTest {
     }
 
     @Test
-    @DisplayName("多订单核算：分摊成本正确分配到各订单")
+    @DisplayName("多订单核算：无公共成本时各订单成本仅含平台费")
     void calculateMultipleOrders() {
         List<RawOrder> orders = Arrays.asList(
                 buildOrder("O1", "Amazon", "CNY", new BigDecimal("100"), new BigDecimal("30")),
                 buildOrder("O2", "Amazon", "CNY", new BigDecimal("200"), new BigDecimal("70"))
         );
         when(rawOrderMapper.selectList(any())).thenReturn(orders);
-
-        // 总平台费 = 30 + 70 = 100，按金额占比分摊
-        Map<String, BigDecimal> costMap = new HashMap<>();
-        costMap.put("O1", new BigDecimal("33.33"));
-        costMap.put("O2", new BigDecimal("66.67"));
-        when(costAllocationService.allocate(eq("202607"), eq(new BigDecimal("100")), eq("AMOUNT")))
-                .thenReturn(costMap);
         when(currencyConvertUtils.toCny(new BigDecimal("100"), "CNY")).thenReturn(new BigDecimal("100"));
         when(currencyConvertUtils.toCny(new BigDecimal("200"), "CNY")).thenReturn(new BigDecimal("200"));
 
@@ -203,12 +190,12 @@ class ProfitEngineServiceImplTest {
         service.calculate("202607");
 
         assertThat(captured).hasSize(2);
-        // O1: 100 - 33.33 = 66.67
+        // O1: 100 - 30(平台费) - 0(公共分摊) = 70
         ProfitReport r1 = captured.stream().filter(r -> r.getOrderNo().equals("O1")).findFirst().orElseThrow();
-        assertThat(r1.getProfitAmount()).isEqualByComparingTo("66.67");
-        // O2: 200 - 66.67 = 133.33
+        assertThat(r1.getProfitAmount()).isEqualByComparingTo("70.00");
+        // O2: 200 - 70(平台费) - 0(公共分摊) = 130
         ProfitReport r2 = captured.stream().filter(r -> r.getOrderNo().equals("O2")).findFirst().orElseThrow();
-        assertThat(r2.getProfitAmount()).isEqualByComparingTo("133.33");
+        assertThat(r2.getProfitAmount()).isEqualByComparingTo("130.00");
     }
 
     // ==================== 幂等性 ====================
@@ -219,8 +206,6 @@ class ProfitEngineServiceImplTest {
                 buildOrder("O1", "Amazon", "CNY", new BigDecimal("100"), new BigDecimal("10"))
         );
         when(rawOrderMapper.selectList(any())).thenReturn(orders);
-        when(costAllocationService.allocate(anyString(), any(), anyString()))
-                .thenReturn(Collections.emptyMap());
         when(currencyConvertUtils.toCny(any(), anyString())).thenReturn(new BigDecimal("100"));
 
         ProfitEngineServiceImpl service = createService(null);
@@ -237,8 +222,6 @@ class ProfitEngineServiceImplTest {
                 buildOrder("ZERO", "Amazon", "CNY", BigDecimal.ZERO, new BigDecimal("10"))
         );
         when(rawOrderMapper.selectList(any())).thenReturn(orders);
-        when(costAllocationService.allocate(anyString(), any(), anyString()))
-                .thenReturn(Collections.singletonMap("ZERO", new BigDecimal("10")));
         when(currencyConvertUtils.toCny(BigDecimal.ZERO, "CNY")).thenReturn(BigDecimal.ZERO);
 
         List<ProfitReport> captured = new java.util.ArrayList<>();
@@ -248,6 +231,7 @@ class ProfitEngineServiceImplTest {
 
         ProfitReport report = captured.get(0);
         assertThat(report.getProfitRate()).isEqualByComparingTo(BigDecimal.ZERO);
+        // 成本仅平台费 10，利润 = 0 - 10 = -10
         assertThat(report.getProfitAmount()).isEqualByComparingTo(new BigDecimal("-10"));
     }
 
@@ -258,8 +242,6 @@ class ProfitEngineServiceImplTest {
                 buildOrder("O1", "Amazon", "CNY", new BigDecimal("100"), null)
         );
         when(rawOrderMapper.selectList(any())).thenReturn(orders);
-        when(costAllocationService.allocate(anyString(), eq(BigDecimal.ZERO), anyString()))
-                .thenReturn(Collections.emptyMap());
         when(currencyConvertUtils.toCny(new BigDecimal("100"), "CNY")).thenReturn(new BigDecimal("100"));
 
         List<ProfitReport> captured = new java.util.ArrayList<>();

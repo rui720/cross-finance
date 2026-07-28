@@ -34,7 +34,7 @@ public class SysUserController {
      *
      * @param keyword 关键词（同时匹配用户名和真实姓名，OR 关系）
      * @param status  状态：0 禁用 / 1 启用
-     * @param roleCode 角色代码（如 ADMIN / FINANCE / APPROVER / OPERATOR）
+     * @param roleCode 角色代码（如 ADMIN / FINANCE / OPERATOR / EMPLOYEE）
      */
     @GetMapping("/page")
     public Result<Page<SysUser>> page(
@@ -97,11 +97,36 @@ public class SysUserController {
     /**
      * 分配角色
      *
-     * @param roleCodes 角色代码列表（如 ADMIN / FINANCE / APPROVER / OPERATOR）
+     * @param roleCodes 角色代码列表（如 ADMIN / FINANCE / OPERATOR / EMPLOYEE）
      */
     @PutMapping("/{id}/roles")
     public Result<Void> assignRoles(@PathVariable Long id, @RequestBody List<String> roleCodes) {
         sysUserService.assignRoles(id, roleCodes);
+        return Result.success();
+    }
+
+    /**
+     * 分页查询已逻辑删除的用户（用于恢复入口）。
+     *
+     * @param keyword 关键词（同时匹配用户名、真实姓名、工号，可为空）
+     */
+    @GetMapping("/deleted-page")
+    public Result<Page<SysUser>> deletedPage(
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "10") long size,
+            @RequestParam(required = false) String keyword) {
+        return Result.success(sysUserService.pageDeleted(page, size, keyword));
+    }
+
+    /**
+     * 恢复已逻辑删除的用户。
+     * <p>
+     * 恢复前会校验工号/手机号/邮箱/用户名在 deleted=0 范围内的冲突，
+     * 若冲突会抛出业务异常提示具体冲突字段。
+     */
+    @PostMapping("/{id}/recover")
+    public Result<Void> recover(@PathVariable Long id) {
+        sysUserService.recoverUser(id);
         return Result.success();
     }
 }

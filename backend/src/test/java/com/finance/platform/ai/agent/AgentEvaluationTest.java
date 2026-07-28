@@ -58,7 +58,7 @@ class AgentEvaluationTest {
     /** 系统人设（与 AiChatServiceImpl 中一致） */
     private static final String SYSTEM_PROMPT = "你是跨境金融平台的 AI 合规顾问，"
             + "精通跨境支付、外汇结算、业财核算与合规风控。"
-            + "当用户询问实时数据（如汇率、订单、利润、预算、付款状态）时，"
+            + "当用户询问实时数据（如汇率、订单、利润、导入批次、对账状态）时，"
             + "请主动调用对应工具获取最新数据，基于真实数据回答。"
             + "请基于历史对话上下文，用专业、准确、简洁的中文回答用户问题。";
 
@@ -92,22 +92,22 @@ class AgentEvaluationTest {
                 "queryOrders", Map.of("platform", "Amazon"), "订单查询"));
         cases.add(new EvalCase("T04", "工具选择", "2026年7月利润情况如何？",
                 "queryProfitReport", Map.of("period", "202607"), "利润报表"));
-        cases.add(new EvalCase("T05", "工具选择", "哪些预算快超了？",
-                "queryBudgetWarnings", Map.of(), "预算预警"));
-        cases.add(new EvalCase("T06", "工具选择", "待审批的付款有哪些？",
-                "queryPaymentApplies", Map.of("status", "1"), "付款申请列表"));
+        cases.add(new EvalCase("T05", "工具选择", "最近导入的批次清洗好了吗？",
+                "queryImportBatches", Map.of(), "导入批次状态"));
+        cases.add(new EvalCase("T06", "工具选择", "我们有哪些导入模板？",
+                "queryImportTemplates", Map.of(), "导入模板列表"));
         cases.add(new EvalCase("T07", "工具选择", "1000美元等于多少人民币？",
                 "getLatestExchangeRate", Map.of("fromCurrency", "USD", "toCurrency", "CNY"), "汇率换算（合并后）"));
         cases.add(new EvalCase("T08", "工具选择", "系统有哪些费用分摊规则？",
                 "queryAllocationRules", Map.of(), "分摊规则"));
-        cases.add(new EvalCase("T09", "工具选择", "查一下付款申请 PAY-20260714-0001 的详情",
-                "queryPaymentDetail", Map.of("applyNo", "PAY-20260714-0001"), "付款详情"));
+        cases.add(new EvalCase("T09", "工具选择", "银行流水对账状态怎么样？",
+                "queryReconcileStatus", Map.of(), "对账状态"));
         cases.add(new EvalCase("T10", "工具选择", "订单 ORD-202607-0001 的详情",
                 "queryOrderDetail", Map.of("orderNo", "ORD-202607-0001"), "订单详情"));
         cases.add(new EvalCase("T11", "工具选择", "最近7天有哪些操作日志？",
                 "queryAuditLogs", Map.of(), "审计日志"));
-        cases.add(new EvalCase("T12", "工具选择", "银行对账状态如何？",
-                "queryReconcileStatus", Map.of(), "对账状态"));
+        cases.add(new EvalCase("T12", "工具选择", "我们有哪些银行流水导入模板？",
+                "queryImportTemplates", Map.of("sourceType", "BANK"), "银行流水模板"));
         cases.add(new EvalCase("T13", "工具选择", "分析一下2026年7月的利润归因",
                 "analyzeProfit", Map.of("period", "202607"), "利润归因"));
 
@@ -122,8 +122,8 @@ class AgentEvaluationTest {
                 "queryProfitReport", Map.of("period", "202606"), "6月period"));
         cases.add(new EvalCase("P05", "参数提取", "5000港币等于多少人民币？",
                 "getLatestExchangeRate", Map.of("fromCurrency", "HKD", "toCurrency", "CNY"), "HKD换算（合并后）"));
-        cases.add(new EvalCase("P06", "参数提取", "已通过的付款申请有哪些？",
-                "queryPaymentApplies", Map.of("status", "2"), "状态2已通过"));
+        cases.add(new EvalCase("P06", "参数提取", "查一下平台账单的导入模板有哪些？",
+                "queryImportTemplates", Map.of("sourceType", "PLATFORM"), "PLATFORM参数"));
 
         // ===== 3. 不该调工具（4题） =====
         cases.add(new EvalCase("N01", "不调工具", "你好，你是做什么的？",
@@ -138,8 +138,8 @@ class AgentEvaluationTest {
         // ===== 4. 容错/边界（4题） =====
         cases.add(new EvalCase("B01", "边界", "订单 NOT-EXIST-999 的详情",
                 "queryOrderDetail", Map.of("orderNo", "NOT-EXIST-999"), "不存在订单号"));
-        cases.add(new EvalCase("B02", "边界", "查一下付款申请 NOT-EXIST 的详情",
-                "queryPaymentDetail", Map.of("applyNo", "NOT-EXIST"), "不存在付款号"));
+        cases.add(new EvalCase("B02", "边界", "查一下订单 NOT-EXIST 的详情",
+                "queryOrderDetail", Map.of("orderNo", "NOT-EXIST"), "不存在订单号"));
         cases.add(new EvalCase("B03", "边界", "最近1天有哪些审计日志？",
                 "queryAuditLogs", Map.of(), "1天审计日志"));
         cases.add(new EvalCase("B04", "边界", "2025年1月的利润情况",
@@ -148,8 +148,8 @@ class AgentEvaluationTest {
         // ===== 5. 多工具协作（3题） =====
         cases.add(new EvalCase("M01", "多工具", "美元和欧元兑人民币汇率分别是多少？",
                 "getLatestExchangeRate", Map.of(), "需调2次汇率查询"));
-        cases.add(new EvalCase("M02", "多工具", "7月利润情况如何，哪些预算快超了？",
-                "queryProfitReport", Map.of(), "利润+预算2个工具"));
+        cases.add(new EvalCase("M02", "多工具", "7月利润情况如何，银行对账状态怎么样？",
+                "queryProfitReport", Map.of(), "利润+对账2个工具"));
         cases.add(new EvalCase("M03", "多工具", "现在美元汇率多少？1000美元等于多少人民币？",
                 "getLatestExchangeRate", Map.of(), "汇率+换算2个工具"));
 

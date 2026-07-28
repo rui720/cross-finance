@@ -28,9 +28,10 @@ async function handleLogin() {
     loading.value = true
     try {
       const res = await login(form)
-      // 后端返回 { code, msg, data: { token, user } }
-      const { token, user } = res.data || {}
-      userStore.setLoginData(token, user || { username: form.username })
+      // 后端返回 { code, msg, data: { accessToken, refreshToken, token, user } }
+      // token 字段为兼容字段（值同 accessToken）
+      const { accessToken, token, refreshToken, user } = res.data || {}
+      userStore.setLoginData(accessToken || token, user || { username: form.username }, refreshToken)
       ElMessage.success('登录成功')
       router.push('/')
     } catch (e) {

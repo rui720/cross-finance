@@ -1,7 +1,7 @@
 // 全局状态存储：用户信息、Token
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { getToken, setToken, removeToken, getUser, setUser } from '@/utils/auth'
+import { getToken, setToken, removeToken, getUser, setUser, getRefreshToken, setRefreshToken } from '@/utils/auth'
 
 export const useUserStore = defineStore('user', () => {
   const token = ref(getToken() || '')
@@ -26,12 +26,19 @@ export const useUserStore = defineStore('user', () => {
     return roles.value.includes(code)
   }
 
-  function setLoginData(tokenValue, user) {
-    token.value = tokenValue
+  /**
+   * 保存登录返回数据
+   * @param accessToken 短期访问令牌
+   * @param user 用户信息
+   * @param refreshToken 长期刷新令牌（可选，仅登录/续期时返回）
+   */
+  function setLoginData(accessToken, user, refreshToken) {
+    token.value = accessToken
     userInfo.value = user
     username.value = user?.username || ''
-    setToken(tokenValue)
+    setToken(accessToken)
     setUser(user)
+    if (refreshToken) setRefreshToken(refreshToken)
   }
 
   function reset() {

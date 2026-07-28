@@ -1,6 +1,6 @@
 # 跨境金融业财核算与智能决策平台
 
-> 一个面向跨境贸易企业的业财一体化平台，整合数据底座、业财核算、资金风控与 AI 智能决策能力，帮助企业实现订单对账、多币种利润核算、预算管控、付款审批全流程数字化，并内置 AI 顾问基于实时业务数据辅助经营决策。
+> 一个面向跨境贸易企业的业财一体化平台，整合数据底座、业财核算与 AI 智能决策能力，帮助企业实现订单对账、多币种利润核算、成本分摊全流程数字化，并内置 AI 顾问基于实时业务数据辅助经营决策。
 
 ---
 
@@ -75,21 +75,21 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      前端 Vue3 SPA                          │
-│   登录 │ 经营驾驶舱 │ AI 顾问 │ 数据底座 │ 业财核算 │ 资金风控 │
+│   登录 │ 经营驾驶舱 │ AI 顾问 │ 数据底座 │ 业财核算 │ 系统管理 │
 └────────────────────────┬────────────────────────────────────┘
                          │ HTTP / SSE
 ┌────────────────────────▼────────────────────────────────────┐
 │                Spring Boot 后端 (五层架构)                  │
 │   Controller → Service → Manager → Mapper → Database        │
 ├─────────────────────────────────────────────────────────────┤
-│  数据底座          │  业财核算         │  资金风控           │
-│  · 账单导入清洗    │  · 多维利润核算   │  · 预算计划         │
-│  · 银行流水对账    │  · 费用分摊模型   │  · 付款申请         │
-│  · 汇率同步        │  · 利润报表       │  · 审批工作台       │
+│  数据底座          │  业财核算         │  系统管理           │
+│  · 账单导入清洗    │  · 多维利润核算   │  · 用户与权限       │
+│  · 银行流水对账    │  · 费用分摊模型   │  · 部门管理         │
+│  · 汇率同步        │  · 利润报表       │  · 审计日志         │
 ├─────────────────────────────────────────────────────────────┤
 │                       AI 智能决策                            │
 │  · AI 顾问对话（SSE 流式）                                   │
-│  · Agent 工具调用（12 个 @Tool 方法）                        │
+│  · Agent 工具调用（11 个 @Tool 方法）                        │
 │  · 会话上下文持久化（跨设备回溯）                            │
 ├─────────────────────────────────────────────────────────────┤
 │                       系统底座                               │
@@ -103,14 +103,12 @@
 
 | 模块 | 路由 | 支持角色 | 说明 |
 |---|---|---|---|
-| 经营驾驶舱 | `/ai/dashboard` | 全部 | 汇总营收、净利润、预算执行等核心指标 |
+| 经营驾驶舱 | `/ai/dashboard` | 全部 | 汇总营收、净利润、成本结构等核心指标 |
 | AI 合规顾问 | `/ai/advisor` | 全部 | 流式对话 + 工具调用 + 会话回溯 |
 | 账单导入清洗 | `/data/bill-import` | ADMIN/FINANCE/OPERATOR | Excel 上传 → ETL 清洗 → 入库 |
 | 银行流水对账 | `/data/bank-reconciliation` | ADMIN/FINANCE/OPERATOR | 平台账单 ↔ 银行流水自动匹配 |
 | 多维度利润报表 | `/accounting/profit-report` | ADMIN/FINANCE/OPERATOR | 按店铺/平台/币种多维度核算 |
 | 费用分摊模型配置 | `/accounting/model-config` | ADMIN/FINANCE | 按金额/重量配置分摊规则 |
-| 付款申请 | `/fund/payment-apply` | ADMIN/FINANCE/OPERATOR | 关联预算扣减 |
-| 审批工作台 | `/fund/approval-center` | ADMIN/APPROVER/CASHIER | 多级审批 + 预算原子扣减 |
 | 用户与权限管理 | `/system/user` | ADMIN | 用户/角色/菜单维护 |
 | 操作审计日志 | `/system/audit` | ADMIN | 全 Controller 操作留痕 |
 
@@ -124,11 +122,10 @@ cross-finance/
 │   ├── src/main/java/com/finance/platform/
 │   │   ├── accounting/               # 业财核算（利润、分摊）
 │   │   ├── ai/                       # AI 顾问（Agent、对话、RAG）
-│   │   │   └── agent/AiTools.java    # 12 个 @Tool 工具方法
+│   │   │   └── agent/AiTools.java    # 11 个 @Tool 工具方法
 │   │   ├── common/                   # 公共组件（切面、异常、工具）
 │   │   ├── config/                   # 配置（Security/JWT/LangChain/线程池）
 │   │   ├── data/                     # 数据底座（订单、汇率、ETL）
-│   │   ├── fund/                     # 资金风控（预算、付款、审批）
 │   │   ├── system/                   # 系统管理（用户、角色、审计）
 │   │   └── PlatformApplication.java  # 启动入口
 │   ├── src/main/resources/
@@ -144,11 +141,10 @@ cross-finance/
 │   │   ├── router/                   # 路由 + 角色守卫
 │   │   ├── store/                    # Pinia 状态
 │   │   ├── utils/                    # 工具（request 拦截器、auth）
-│   │   └── views/                    # 页面（ai/data/accounting/fund/system）
+│   │   └── views/                    # 页面（ai/data/accounting/system）
 │   └── vite.config.js
 │
 ├── mock-data/                        # 模拟数据
-│   ├── 03_mock_data.sql              # 一键导入全量数据
 │   ├── excel/                        # 模拟账单/流水 CSV
 │   └── README_mock_data.txt
 │
@@ -203,8 +199,7 @@ mysql -u root -p cross_finance < backend/src/main/resources/sql/02_init_data.sql
 mysql -u root -p cross_finance < backend/src/main/resources/sql/04_ai_chat.sql
 mysql -u root -p cross_finance < backend/src/main/resources/sql/05_dept_and_roles.sql
 
-# 可选：导入模拟数据用于功能验证
-mysql -u root -p cross_finance < mock-data/03_mock_data.sql
+# 可选：通过前端"数据导入"页面上传 mock-data/excel/ 下的 CSV 文件进行功能验证
 ```
 
 > ⚠️ Windows 命令行默认 GBK 编码，导入中文数据前请先执行 `SET NAMES utf8mb4;`
@@ -268,7 +263,8 @@ SQL 脚本按编号顺序执行：
 | `02_init_data.sql` | 初始化用户、菜单、基础配置 |
 | `04_ai_chat.sql` | AI 对话会话表 |
 | `05_dept_and_roles.sql` | 部门、角色、用户角色关联 |
-| `mock-data/03_mock_data.sql` | 模拟业务数据（可选，用于功能验证） |
+| `12_profit_report_enhance.sql` | 利润报表增强（店铺维度、成本结构、对账状态等） |
+| `13_cleanup_fund_module.sql` | 清理已移除的资金风控模块残留用户与角色 |
 
 ### 核心数据表
 
@@ -281,8 +277,6 @@ SQL 脚本按编号顺序执行：
 | `exchange_rate_snapshot` | 汇率快照 |
 | `cost_allocation_rule` | 费用分摊规则 |
 | `profit_report` | 利润报表 |
-| `budget_plan` | 预算计划 |
-| `payment_apply` | 付款申请单 |
 | `ai_session` / `ai_message` | AI 对话会话与消息 |
 
 ---
@@ -291,7 +285,7 @@ SQL 脚本按编号顺序执行：
 
 AI 顾问基于 LangChain4j Agent 架构，通过 `@Tool` 注解将业务能力暴露给大模型，支持模型自主决策何时调用哪个工具。
 
-### 内置 12 个工具方法
+### 内置 11 个工具方法
 
 | 工具 | 说明 |
 |---|---|
@@ -301,9 +295,6 @@ AI 顾问基于 LangChain4j Agent 架构，通过 `@Tool` 注解将业务能力�
 | `queryOrderDetail` | 查询订单详情 |
 | `queryProfitReport` | 查询利润报表数值汇总 |
 | `analyzeProfit` | 利润归因分析与诊断建议 |
-| `queryBudgetWarnings` | 查询预算预警 |
-| `queryPaymentApplies` | 查询付款申请列表 |
-| `queryPaymentDetail` | 查询付款申请详情 |
 | `queryAllocationRules` | 查询费用分摊规则 |
 | `queryAuditLogs` | 查询操作审计日志 |
 | `queryReconcileStatus` | 查询对账状态 |
@@ -361,10 +352,9 @@ cd backend
 | 角色 | 权限范围 |
 |---|---|
 | `ADMIN` | 全部菜单 |
-| `FINANCE` | 数据底座 + 业财核算 + 资金风控(付款) + AI |
-| `APPROVER` | 资金风控(审批) + AI |
-| `OPERATOR` | 数据底座 + 业财核算(无分摊配置) + 资金风控(付款) + AI |
-| `CASHIER` | 资金风控(审批) |
+| `FINANCE` | 数据底座 + 业财核算(含模型配置) + AI |
+| `OPERATOR` | 数据底座(只读) + 业财核算(只读,无模型配置) + AI |
+| `EMPLOYEE` | 智能决策（驾驶舱 + AI 顾问） |
 
 ### HTTP 状态码语义
 
@@ -394,10 +384,8 @@ cd backend
 覆盖范围：
 - `AllocationStrategyTest`：分摊策略
 - `CurrencyConvertUtilsTest`：币种换算
-- `BudgetControlServiceImplTest`：预算扣减
-- `PaymentFlowServiceImplTest`：付款流程
 - `ProfitEngineServiceImplTest`：利润核算引擎
-- `AiToolsTest`：AI Agent 12 个工具方法
+- `AiToolsTest`：AI Agent 11 个工具方法
 
 ### Agent 评测
 

@@ -27,24 +27,23 @@ const toolNameMap = {
   getExchangeRateHistory: '查询汇率历史',
   queryOrders: '查询订单数据',
   queryProfitReport: '查询利润报表',
-  queryBudgetWarnings: '查询预算预警',
-  queryPaymentApplies: '查询付款申请',
   queryAllocationRules: '查询分摊规则',
-  queryPaymentDetail: '查询付款详情',
   queryOrderDetail: '查询订单详情',
   queryAuditLogs: '查询审计日志',
   queryReconcileStatus: '查询对账状态',
-  analyzeProfit: '分析利润归因'
+  analyzeProfit: '分析利润归因',
+  queryImportBatches: '查询导入批次',
+  queryImportTemplates: '查询导入模板'
 }
 
 // ===== 预设快捷问题 =====
 const quickQuestions = [
   '现在美元兑人民币汇率多少？',
   '7月利润情况如何？',
-  '哪些预算快超了？',
   '1000美元等于多少人民币？',
   '亚马逊平台最近30天订单情况',
-  '待审批的付款有哪些？'
+  '最近导入的批次清洗好了吗？',
+  '银行对账状态如何？'
 ]
 
 // ===== 右侧目录：提取所有用户消息摘要 =====

@@ -42,27 +42,33 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String header = request.getHeader(jwtUtils.getHeader());
         if (StringUtils.hasText(header) && header.startsWith(jwtUtils.getPrefix())) {
             String token = header.substring(jwtUtils.getPrefix().length());
-            try {
-                Claims claims = jwtUtils.parse(token);
-                Long userId = Long.valueOf(claims.getSubject());
-                String username = claims.get("username", String.class);
-                Object roles = claims.get("roles");
-                // Spring Security 的 hasRole('X') 会自动加 ROLE_ 前缀进行匹配，
-                // 因此 authority 必须以 ROLE_ 开头，否则 hasRole 永远匹配失败。
-                List<SimpleGrantedAuthority> authorities = (roles instanceof List<?> list)
-                        ? list.stream()
-                            .map(Object::toString)
-                            .map(r -> r.startsWith("ROLE_") ? r : "ROLE_" + r)
-                            .map(SimpleGrantedAuthority::new)
-                            .collect(Collectors.toList())
-                        : List.of();
-                LoginUser principal = new LoginUser(userId, username);
-                UsernamePasswordAuthenticationToken auth =
-                        new UsernamePasswordAuthenticationToken(principal, null, authorities);
-                auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(auth);
-            } catch (Exception ignored) {
-                // 解析失败，保持未认证状态，由后续链处理
+            // 仅接受 accessToken，拒绝 refreshToken 被误用为业务接口凭证
+            if (jwtUtils.isValidAccessToken(token)) {
+                try {
+                    Claims claims = jwtUtils.parse(token);
+                    Long userId = Long.valueOf(claims.getSubject());
+                    String username = claims.get("username", String.class);
+                    Object roles = claims.get("roles");
+                    // Spring Security 的 hasRole('X') 会自动加 ROLE_ 前缀进行匹配，
+                    // 因此 authority 必须以 ROLE_ 开头，否则 hasRole 永远匹配失败。
+                    List<SimpleGrantedAuthority> authorities = (roles instanceof List<?> list)
+                            ? list.stream()
+                                .map(Object::toString)
+                                .map(r -> r.startsWith("ROLE_") ? r : "ROLE_" + r)
+                                .map(SimpleGrantedAuthority::new)
+                                .collect(Collectors.toList())
+                            : List.of();
+                    LoginUser principal = new LoginUser(userId, username);
+                    UsernamePasswordAuthenticationToken auth =
+                            new UsernamePasswordAuthenticationToken(principal, null, authorities);
+                    auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(auth);
+                } catch (Exception ignored) {
+                    // 解析失败，保持未认证状态，由后续链处理
+                    SecurityContextHolder.clearContext();
+                }
+            } else {
+                // 非法 token 或 refreshToken：清空上下文，由后续链返回 401
                 SecurityContextHolder.clearContext();
             }
         }

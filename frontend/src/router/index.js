@@ -34,34 +34,58 @@ const routes = [
     meta: { title: '账单导入与清洗', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
   },
   {
+    path: '/data/exchange-rate-import',
+    name: 'ExchangeRateImport',
+    component: () => import('@/views/data/ExchangeRateImport.vue'),
+    meta: { title: '历史汇率导入', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
+  },
+  {
     path: '/data/bank-reconciliation',
     name: 'BankReconciliation',
     component: () => import('@/views/data/BankReconciliation.vue'),
-    meta: { title: '银行流水对账', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
+    meta: { title: '银行流水导入', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
   },
   {
-    path: '/accounting/profit-report',
-    name: 'ProfitReport',
-    component: () => import('@/views/accounting/ProfitReport.vue'),
-    meta: { title: '多维度利润报表', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
+    path: '/data/cost-import',
+    name: 'ExtraCostImport',
+    component: () => import('@/views/data/ExtraCostImport.vue'),
+    meta: { title: '额外费用导入', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
   },
   {
-    path: '/accounting/model-config',
-    name: 'ModelConfig',
-    component: () => import('@/views/accounting/ModelConfig.vue'),
-    meta: { title: '费用分摊模型配置', roles: ['ADMIN', 'FINANCE'] }
+    path: '/data/data-management',
+    name: 'DataManagement',
+    component: () => import('@/views/data/DataManagement.vue'),
+    meta: { title: '数据管理', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
   },
   {
-    path: '/fund/payment-apply',
-    name: 'PaymentApply',
-    component: () => import('@/views/fund/PaymentApply.vue'),
-    meta: { title: '付款申请', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
+    path: '/accounting/profit-detail',
+    name: 'ProfitDetail',
+    component: () => import('@/views/accounting/ProfitDetail.vue'),
+    meta: { title: '利润明细', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
   },
   {
-    path: '/fund/approval-center',
-    name: 'ApprovalCenter',
-    component: () => import('@/views/fund/ApprovalCenter.vue'),
-    meta: { title: '审批工作台', roles: ['ADMIN', 'APPROVER', 'CASHIER'] }
+    path: '/accounting/profit-trend',
+    name: 'ProfitTrend',
+    component: () => import('@/views/accounting/ProfitTrend.vue'),
+    meta: { title: '趋势分析', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
+  },
+  {
+    path: '/accounting/cost-structure',
+    name: 'CostStructure',
+    component: () => import('@/views/accounting/CostStructure.vue'),
+    meta: { title: '成本结构', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
+  },
+  {
+    path: '/accounting/profit-diagnosis',
+    name: 'ProfitDiagnosis',
+    component: () => import('@/views/accounting/ProfitDiagnosis.vue'),
+    meta: { title: '利润诊断', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
+  },
+  {
+    path: '/accounting/profit-aggregate',
+    name: 'ProfitAggregate',
+    component: () => import('@/views/accounting/ProfitAggregate.vue'),
+    meta: { title: '多维聚合', roles: ['ADMIN', 'FINANCE', 'OPERATOR'] }
   },
   {
     path: '/ai/dashboard',

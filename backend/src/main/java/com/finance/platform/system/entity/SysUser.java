@@ -24,10 +24,15 @@ public class SysUser extends BaseEntity {
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    /** 用户名 */
+    /** 用户名（登录凭据，不作为业务唯一约束，删除后可复用） */
     @NotBlank(message = "用户名不能为空")
     @TableField("username")
     private String username;
+
+    /** 员工工号（业务唯一标识，deleted=0 范围内唯一，编辑时不可修改） */
+    @NotBlank(message = "员工工号不能为空")
+    @TableField("employee_no")
+    private String employeeNo;
 
     /** 密码（BCrypt 加密存储，不返回前端） */
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)

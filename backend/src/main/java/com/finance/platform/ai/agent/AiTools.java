@@ -1,9 +1,7 @@
 package com.finance.platform.ai.agent;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.finance.platform.accounting.entity.CostAllocationRule;
 import com.finance.platform.accounting.entity.ProfitReport;
-import com.finance.platform.accounting.mapper.CostAllocationRuleMapper;
 import com.finance.platform.accounting.service.ProfitEngineService;
 import com.finance.platform.ai.service.AiAnalysisService;
 import com.finance.platform.common.utils.CurrencyConvertUtils;
@@ -12,10 +10,10 @@ import com.finance.platform.data.entity.RawOrder;
 import com.finance.platform.data.mapper.ExchangeRateSnapshotMapper;
 import com.finance.platform.data.mapper.RawOrderMapper;
 import com.finance.platform.data.service.ExchangeRateService;
-import com.finance.platform.fund.entity.BudgetPlan;
-import com.finance.platform.fund.entity.PaymentApply;
-import com.finance.platform.fund.service.BudgetControlService;
-import com.finance.platform.fund.service.PaymentFlowService;
+import com.finance.platform.data.entity.ImportBatch;
+import com.finance.platform.data.entity.ImportTemplate;
+import com.finance.platform.data.service.ImportBatchService;
+import com.finance.platform.data.service.ImportTemplateService;
 import com.finance.platform.system.entity.SysAuditLog;
 import com.finance.platform.system.service.SysAuditLogService;
 import dev.langchain4j.agent.tool.P;
@@ -51,12 +49,11 @@ public class AiTools {
     private final ExchangeRateSnapshotMapper exchangeRateSnapshotMapper;
     private final RawOrderMapper rawOrderMapper;
     private final ProfitEngineService profitEngineService;
-    private final BudgetControlService budgetControlService;
-    private final PaymentFlowService paymentFlowService;
     private final CurrencyConvertUtils currencyConvertUtils;
     private final AiAnalysisService aiAnalysisService;
     private final SysAuditLogService sysAuditLogService;
-    private final CostAllocationRuleMapper costAllocationRuleMapper;
+    private final ImportBatchService importBatchService;
+    private final ImportTemplateService importTemplateService;
 
     /**
      * 查询最新汇率（支持带金额换算）
@@ -130,7 +127,7 @@ public class AiTools {
             int queryDays = days == null || days <= 0 ? 30 : Math.min(days, 365);
             LocalDate startDate = LocalDate.now().minusDays(queryDays);
             LambdaQueryWrapper<RawOrder> wrapper = new LambdaQueryWrapper<RawOrder>()
-                    .eq(RawOrder::getSource, "PLATFORM")
+                    .eq(RawOrder::getSource, com.finance.platform.common.constant.BusinessConstants.SOURCE_PLATFORM)
                     .ge(RawOrder::getOrderTime, startDate.atStartOfDay());
             if (platform != null && !platform.isBlank()) {
                 wrapper.eq(RawOrder::getPlatform, platform);
@@ -167,7 +164,7 @@ public class AiTools {
     @Tool("查询指定周期的利润核算报表数据（仅返回数值汇总）。参数：period 核算周期（格式 yyyyMM，如 202607）。返回总收入、总成本、总利润、平均利润率等汇总数据。适用于用户问'利润多少/利润情况/利润报表'等只需数据的场景。")
     public String queryProfitReport(@P("核算周期，格式 yyyyMM，如 202607") String period) {
         try {
-            var page = profitEngineService.getReport(period, 1, 200);
+            var page = profitEngineService.getReport(period, null, null, 1, 200);
             List<ProfitReport> records = page.getRecords();
             if (records.isEmpty()) {
                 return String.format("周期 %s 暂无利润报表数据，请先执行利润核算", period);
@@ -197,105 +194,12 @@ public class AiTools {
     }
 
     /**
-     * 查询预算预警
-     */
-    @Tool("查询当前已达到预警阈值的预算计划（即使用率超过预警线的预算）。无需参数。返回预警预算列表及使用率。")
-    public String queryBudgetWarnings() {
-        try {
-            List<BudgetPlan> plans = budgetControlService.getWarningPlans();
-            if (plans.isEmpty()) {
-                return "当前没有预算达到预警阈值";
-            }
-            String detail = plans.stream()
-                    .map(p -> {
-                        BigDecimal usage = p.getTotalAmount().compareTo(BigDecimal.ZERO) > 0
-                                ? p.getUsedAmount().multiply(BigDecimal.valueOf(100)).divide(p.getTotalAmount(), 2, RoundingMode.HALF_UP)
-                                : BigDecimal.ZERO;
-                        return String.format("%s（周期%s）：已用 %s/%s %s，使用率 %s%%，阈值 %s%%",
-                                p.getPlanName(), p.getPeriod(),
-                                p.getUsedAmount().setScale(2, RoundingMode.HALF_UP),
-                                p.getTotalAmount().setScale(2, RoundingMode.HALF_UP),
-                                p.getCurrency(), usage, p.getWarningThreshold());
-                    })
-                    .collect(Collectors.joining("; "));
-            return String.format("当前有 %d 项预算达到预警阈值：%s", plans.size(), detail);
-        } catch (Exception e) {
-            return "查询预算预警失败：" + e.getMessage();
-        }
-    }
-
-    /**
-     * 查询付款申请
-     */
-    @Tool("查询付款申请单。参数：status 状态筛选（0草稿/1待审批/2已通过/3已驳回/4已付款，为空查全部）。返回申请单列表摘要。")
-    public String queryPaymentApplies(@P("状态码：0草稿/1待审批/2已通过/3已驳回/4已付款；为空查全部") Integer status) {
-        try {
-            LambdaQueryWrapper<PaymentApply> wrapper = new LambdaQueryWrapper<PaymentApply>()
-                    .orderByDesc(PaymentApply::getApplyTime);
-            if (status != null) {
-                wrapper.eq(PaymentApply::getStatus, status);
-            }
-            List<PaymentApply> list = paymentFlowService.list(wrapper);
-            if (list.isEmpty()) {
-                return status != null ? "未查询到该状态的付款申请" : "当前无付款申请记录";
-            }
-            String detail = list.stream()
-                    .limit(20)
-                    .map(p -> String.format("%s（%s，金额 %s %s，状态 %s，收款 %s）",
-                            p.getApplyNo(), p.getApplyReason() == null ? "无事由" : p.getApplyReason(),
-                            p.getAmount().setScale(2, RoundingMode.HALF_UP), p.getCurrency(),
-                            statusText(p.getStatus()), p.getPayee()))
-                    .collect(Collectors.joining("; "));
-            return String.format("共 %d 条付款申请：%s", list.size(), detail);
-        } catch (Exception e) {
-            return "查询付款申请失败：" + e.getMessage();
-        }
-    }
-
-    /**
      * 查询费用分摊规则
      */
-    @Tool("查询当前系统配置的费用分摊规则列表。无需参数。返回规则名称、类型（按金额/按重量）、启用状态、描述等信息。")
+    @Tool("查询当前系统的费用分摊规则。无需参数。返回分摊策略说明。")
     public String queryAllocationRules() {
-        try {
-            List<CostAllocationRule> rules = costAllocationRuleMapper.selectList(null);
-            if (rules == null || rules.isEmpty()) {
-                return "当前系统未配置费用分摊规则";
-            }
-            String detail = rules.stream()
-                    .map(r -> String.format("%s（类型：%s，%s，%s）",
-                            r.getRuleName(),
-                            "AMOUNT".equals(r.getRuleType()) ? "按金额分摊" : "按重量分摊",
-                            r.getEnabled() == 1 ? "已启用" : "已禁用",
-                            r.getDescription() == null ? "无描述" : r.getDescription()))
-                    .collect(Collectors.joining("; "));
-            return String.format("共 %d 条分摊规则：%s", rules.size(), detail);
-        } catch (Exception e) {
-            return "查询分摊规则失败：" + e.getMessage();
-        }
-    }
-
-    /**
-     * 查询付款申请详情
-     */
-    @Tool("根据申请单号查询付款申请详情。参数：applyNo 申请单号（如 PAY-20260714-0001）。返回申请单的全部信息。")
-    public String queryPaymentDetail(@P("申请单号，如 PAY-20260714-0001") String applyNo) {
-        try {
-            PaymentApply p = paymentFlowService.getOne(new LambdaQueryWrapper<PaymentApply>()
-                    .eq(PaymentApply::getApplyNo, applyNo));
-            if (p == null) {
-                return "未找到申请单号 " + applyNo + " 的付款申请";
-            }
-            return String.format("付款申请详情：%s，收款方 %s，金额 %s %s，事由 %s，状态 %s，申请时间 %s，关联预算ID %s",
-                    p.getApplyNo(), p.getPayee(),
-                    p.getAmount().setScale(2, RoundingMode.HALF_UP), p.getCurrency(),
-                    p.getApplyReason() == null ? "无" : p.getApplyReason(),
-                    statusText(p.getStatus()),
-                    p.getApplyTime() == null ? "无" : p.getApplyTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
-                    p.getBudgetPlanId());
-        } catch (Exception e) {
-            return "查询付款详情失败：" + e.getMessage();
-        }
+        // 配置层已移除，核算引擎硬编码按订单金额占比分摊公共成本
+        return "系统按订单金额占比分摊公共成本";
     }
 
     /**
@@ -337,12 +241,10 @@ public class AiTools {
                 return String.format("近 %d 天无审计日志记录", queryDays);
             }
             String detail = logs.stream()
-                    .map(l -> String.format("[%s] %s %s（%s，耗时%sms，%s）",
+                    .map(l -> String.format("[%s] %s %s（%s）",
                             l.getCreateTime() == null ? "" : l.getCreateTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
                             l.getUsername() == null ? "匿名" : l.getUsername(),
                             l.getOperation() == null ? "未知操作" : l.getOperation(),
-                            l.getMethod() == null ? "" : l.getMethod(),
-                            l.getCostTime() == null ? "0" : l.getCostTime(),
                             l.getStatus() != null && l.getStatus() == 1 ? "成功" : "失败"))
                     .collect(Collectors.joining("; "));
             return String.format("近 %d 天审计日志（显示最近20条）：%s", queryDays, detail);
@@ -358,10 +260,10 @@ public class AiTools {
     public String queryReconcileStatus() {
         try {
             Long total = rawOrderMapper.selectCount(new LambdaQueryWrapper<RawOrder>()
-                    .eq(RawOrder::getSource, "BANK"));
+                    .eq(RawOrder::getSource, com.finance.platform.common.constant.BusinessConstants.SOURCE_BANK));
             Long reconciled = rawOrderMapper.selectCount(new LambdaQueryWrapper<RawOrder>()
-                    .eq(RawOrder::getSource, "BANK")
-                    .isNotNull(RawOrder::getSettleTime));
+                    .eq(RawOrder::getSource, com.finance.platform.common.constant.BusinessConstants.SOURCE_BANK)
+                    .eq(RawOrder::getReconcileStatus, RawOrder.RECONCILE_DONE));
             Long pending = total - reconciled;
             return String.format("银行流水对账状态：共 %d 条流水，已对账 %d 条，待对账 %d 条，对账率 %s%%",
                     total, reconciled, pending,
@@ -386,16 +288,74 @@ public class AiTools {
         }
     }
 
-    /** 付款状态码转中文 */
-    private String statusText(Integer status) {
-        if (status == null) return "未知";
-        return switch (status) {
-            case 0 -> "草稿";
-            case 1 -> "待审批";
-            case 2 -> "已通过";
-            case 3 -> "已驳回";
-            case 4 -> "已付款";
-            default -> "未知(" + status + ")";
-        };
+    /**
+     * 查询导入批次状态（方案 B + D 新增）
+     * <p>
+     * 让 AI 顾问能回答"上次导入的批次清洗好了吗""最近导入情况怎么样"等问题。
+     */
+    @Tool("查询账单导入批次的处理状态。参数：limit 返回最近多少条批次（默认10，最大50）。返回每个批次的文件名、状态（IMPORTED/CLEANING/CLEANED/FAILED）、总数、成功数、失败数。当用户问'导入进度/清洗好了吗/批次状态'时使用此工具。")
+    public String queryImportBatches(@P("返回批次数，默认10，最大50") Integer limit) {
+        try {
+            int queryLimit = limit == null || limit <= 0 ? 10 : Math.min(limit, 50);
+            List<ImportBatch> batches = importBatchService.listAll();
+            if (batches.isEmpty()) {
+                return "暂无导入批次记录";
+            }
+            // 截取最近 N 条
+            int from = Math.max(0, batches.size() - queryLimit);
+            List<ImportBatch> recent = batches.subList(from, batches.size());
+            StringBuilder sb = new StringBuilder();
+            sb.append(String.format("最近 %d 条导入批次状态：\n", recent.size()));
+            for (ImportBatch b : recent) {
+                sb.append(String.format("- 批次 %s｜文件 %s｜来源 %s｜状态 %s｜总数 %d｜成功 %d｜失败 %d\n",
+                        b.getBatchNo(),
+                        b.getFileName() == null ? "-" : b.getFileName(),
+                        b.getSourceType(),
+                        b.getStatus(),
+                        b.getTotalCount() == null ? 0 : b.getTotalCount(),
+                        b.getSuccessCount() == null ? 0 : b.getSuccessCount(),
+                        b.getFailedCount() == null ? 0 : b.getFailedCount()));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "查询导入批次状态失败：" + e.getMessage();
+        }
+    }
+
+    /**
+     * 查询导入模板配置（方案 B + D 新增）
+     * <p>
+     * 让 AI 顾问能回答"我们有哪些导入模板""某个模板的字段映射是什么"等问题。
+     */
+    @Tool("查询账单导入模板配置列表。参数：sourceType 数据来源（PLATFORM/BANK，为空查全部）。返回每个模板的名称、平台、文件类型、字段映射、清洗规则。当用户问'有哪些模板/模板配置/字段映射'时使用此工具。")
+    public String queryImportTemplates(@P("数据来源 PLATFORM 或 BANK，为空查全部") String sourceType) {
+        try {
+            List<ImportTemplate> templates;
+            if (sourceType == null || sourceType.isBlank()) {
+                templates = new java.util.ArrayList<>();
+                templates.addAll(importTemplateService.listBySource(com.finance.platform.common.constant.BusinessConstants.SOURCE_PLATFORM));
+                templates.addAll(importTemplateService.listBySource(com.finance.platform.common.constant.BusinessConstants.SOURCE_BANK));
+            } else {
+                templates = importTemplateService.listBySource(sourceType.toUpperCase());
+            }
+            if (templates.isEmpty()) {
+                return "暂无导入模板配置";
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append(String.format("共 %d 个导入模板：\n", templates.size()));
+            for (ImportTemplate t : templates) {
+                sb.append(String.format("- ID=%d｜%s｜平台 %s｜类型 %s｜AI生成 %s\n  字段映射：%s\n  清洗规则：%s\n",
+                        t.getId(),
+                        t.getTemplateName(),
+                        t.getPlatform() == null ? "通用" : t.getPlatform(),
+                        t.getFileType(),
+                        t.getAiGenerated() != null && t.getAiGenerated() == 1 ? "是" : "否",
+                        t.getColumnMapping(),
+                        t.getCleanRules() == null ? "无" : t.getCleanRules()));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "查询导入模板失败：" + e.getMessage();
+        }
     }
 }

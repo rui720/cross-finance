@@ -11,7 +11,8 @@ import lombok.EqualsAndHashCode;
 /**
  * 系统审计日志实体
  * <p>
- * 记录用户操作行为、请求方法、参数、耗时及执行结果，用于安全审计与问题排查。
+ * 记录用户操作行为、操作前数据快照及执行结果，用于安全审计与撤销恢复。
+ * 已去除技术性字段（method/params/ip/cost_time），仅保留业务可读信息。
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -34,25 +35,17 @@ public class SysAuditLog extends BaseEntity {
     @TableField("operation")
     private String operation;
 
-    /** 请求方法 */
-    @TableField("method")
-    private String method;
-
-    /** 请求参数 */
-    @TableField("params")
-    private String params;
-
-    /** 请求 IP */
-    @TableField("ip")
-    private String ip;
-
-    /** 耗时（ms） */
-    @TableField("cost_time")
-    private Long costTime;
+    /** 操作前数据快照（JSON，用于撤销恢复） */
+    @TableField("old_value")
+    private String oldValue;
 
     /** 状态：0 失败，1 成功 */
     @TableField("status")
     private Integer status;
+
+    /** 是否已撤销：0 未撤销，1 已撤销 */
+    @TableField("undone")
+    private Integer undone;
 
     /** 错误信息 */
     @TableField("error_msg")

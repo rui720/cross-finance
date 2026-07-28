@@ -28,6 +28,12 @@ public class GlobalExceptionHandler {
         return Result.error(e.getCode(), e.getMessage());
     }
 
+    @ExceptionHandler(org.springframework.dao.DuplicateKeyException.class)
+    public Result<Void> handleDuplicateKey(org.springframework.dao.DuplicateKeyException e, HttpServletRequest request) {
+        log.warn("[唯一键冲突] uri={}, msg={}", request.getRequestURI(), e.getMessage());
+        return Result.error(409, "数据重复：该记录的关键字段（如用户名、编号）已存在，请检查后重试");
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public Result<Void> handleAccessDenied(AccessDeniedException e, HttpServletRequest request) {

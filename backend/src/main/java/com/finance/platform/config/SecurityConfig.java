@@ -53,8 +53,10 @@ public class SecurityConfig {
                         // 预检放行
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // 白名单接口
+                        // /auth/refresh 需放行：accessToken 已过期时才能调用续期接口
                         .requestMatchers(
                                 "/auth/login",
+                                "/auth/refresh",
                                 "/auth/register",
                                 "/actuator/health",
                                 "/doc.html",

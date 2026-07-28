@@ -56,8 +56,10 @@ finance:
   jwt:
     # 生产环境必须通过环境变量 JWT_SECRET 注入 ≥256 bit 随机串
     secret: ${JWT_SECRET:dev-only-secret-please-change-in-production-0123456789}
-    # token 有效期（秒），默认 2 小时
+    # accessToken 有效期（秒），默认 2 小时
     expire: 7200
+    # refreshToken 有效期（秒），默认 7 天
+    refresh-expire: 604800
     # token 请求头名称
     header: Authorization
     # token 前缀

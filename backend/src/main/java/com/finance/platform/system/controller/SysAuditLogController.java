@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.finance.platform.common.core.Result;
 import com.finance.platform.system.entity.SysAuditLog;
 import com.finance.platform.system.service.SysAuditLogService;
+import com.finance.platform.system.service.UndoService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -29,6 +30,7 @@ import java.util.List;
 public class SysAuditLogController {
 
     private final SysAuditLogService sysAuditLogService;
+    private final UndoService undoService;
 
     /**
      * 分页查询审计日志
@@ -77,5 +79,27 @@ public class SysAuditLogController {
     public Result<Void> delete(@PathVariable Long id) {
         sysAuditLogService.removeById(id);
         return Result.success();
+    }
+
+    /**
+     * 撤销审计日志对应的操作
+     * <p>
+     * 根据操作类型和 old_value 快照执行对应的撤销逻辑：
+     * <ul>
+     *   <li>update/状态变更：恢复旧实体</li>
+     *   <li>delete：恢复 deleted=0</li>
+     *   <li>add/create：逻辑删除新增记录</li>
+     *   <li>import：按批次号删除</li>
+     *   <li>calculate：按周期删除利润报表</li>
+     * </ul>
+     * 撤销成功后标记 undone=1，防止重复撤销。
+     *
+     * @param id 审计日志 ID
+     * @return 撤销结果描述
+     */
+    @PostMapping("/undo/{id}")
+    public Result<String> undo(@PathVariable Long id) {
+        String desc = undoService.undo(id);
+        return Result.success(desc);
     }
 }
